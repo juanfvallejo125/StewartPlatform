@@ -10,11 +10,9 @@ class Simulation:
 		self.origin = vec(0,0,0)
 		self.ek = np.zeros((6,3))# Corners of the plate in base frame
 		self.hk = np.zeros((6,3))
-		self.z0 = 67 # Base height of plate
-		self.a = (2*self.r-self.s)/sqrt(3) #Side of the pyramidion
-		self.d = 70 # Length of the rods
-		self.h = 10# Length of servo horns
 		self.kine = model
+		scene.width=1920*0.8
+		scene.height=1080*0.8
 		self.generateVertices()
 		self.drawPlate()
 		self.drawServoAxisPoints()
@@ -113,6 +111,7 @@ class Kinematics:
 		self.beta_k = np.zeros(6)# Angles of the servo horns in XY plane
 		self.alpha_k = np.zeros(6)# Angles of the servo axis
 		self.T = np.zeros(3)
+		self.Rot = R.from_euler('x', 0, degrees=True)
 		self.a = (2*self.r-self.s)/sqrt(3) #Side of the pyramidion
 		self.d = d # Length of the rods
 		self.h = h# Length of servo horns
@@ -122,7 +121,7 @@ class Kinematics:
 		self.calculateBetaK()
 		self.lineUpIndices()
 		self.calculateZ0()
-		self.solveIK(np.array([0,0,0]), R.from_euler('x', 0, degrees=True))
+		self.solveIK(np.array([0,0,0]), self.Rot)
 
 	def calculateInitialPlatePoints(self):
 		for i,e in enumerate(self.pk):
@@ -172,6 +171,9 @@ class Kinematics:
 
 
 	def solveIK(self, T_rel, rot):
+		T_prev = np.copy(self.T)
+		Rot_prev = np.copy(self.Rot)
+		Pk_solved_prev = np.copy(self.Pk_solved)
 		self.T = self.T0 + T_rel
 		self.Rot = rot
 		self.lk = np.tile(self.T, (6,1)) + self.Rot.apply(self.pk) - self.bk
@@ -189,7 +191,17 @@ class Kinematics:
 		# print(self.gk)
 		# print("Input to Arcsin")
 		# print(self.gk/np.sqrt(self.e_k**2 + self.fk**2))
-		self.alpha_k = np.arcsin(self.gk/np.sqrt(self.e_k**2 + self.fk**2)) - np.arctan2(self.fk, self.e_k)
+		try:
+			self.alpha_k = np.arcsin(self.gk/np.sqrt(self.e_k**2 + self.fk**2)) - np.arctan2(self.fk, self.e_k)
+			successful = True
+		except:
+			print("Kinematically unfeasible")
+			self.T = T_prev
+			self.Rot = Rot_prev
+			self.Pk_solved = Pk_solved_prev
+			successful = False
+
+		return successful
 		# print("Kinematics: Alpha K")
 		# print(self.alpha_k)
 		#Solve inverse kinematics, solves for alpha k
@@ -197,8 +209,9 @@ class Kinematics:
 if __name__ == "__main__":
 	ro = 60
 	ri = 50
-	d = 70
-	h = 20
+	d = 50
+	h = 10
+	np.seterr(all='raise')
 	kine = Kinematics(ri, ro, d, h)
 	sim = Simulation(kine)
 	T = np.array([0,0,0])
@@ -209,30 +222,79 @@ if __name__ == "__main__":
 	print(T)
 	print("R")
 	print(r.as_euler('xyz'))
-	x_rot = 0
+	x_rot=0
+	y_rot=0
+	z_rot=0
+	x=0
+	y=0
+	z=0
+	x_rot_prev=0
+	y_rot_prev=0
+	z_rot_prev=0
+	x_prev=0
+	y_prev=0
+	z_prev=0
+	dpos = 0.1
+	drot = 0.1
+	dlength = 0.1
 	increment = True
 	decrement = False
 	while(True):
 		rate(50)
-		if(x_rot > 10):
-			increment = False
-			decrement = True
-		elif(x_rot < -10):
-			increment = True
-			decrement = False
-		if(increment):
-			x_rot += 0.1
-		elif(decrement):
-			x_rot -= 0.1
-		r = R.from_euler('y', x_rot, degrees=True)
-		kine.solveIK(T,r)
+		k = keysdown() # a list of keys that are down
+		if 'left' in k: x -= dpos
+		if 'right' in k: x += dpos
+		if 'down' in k: y -= dpos
+		if 'up' in k: y += dpos
+		if '.' in k: z -= dpos
+		if ';' in k: z += dpos
+		if 'a' in k: x_rot -= drot
+		if 'q' in k: x_rot += drot
+		if 's' in k: y_rot -= drot
+		if 'w' in k: y_rot += drot
+		if 'd' in k: z_rot -= drot
+		if 'e' in k: z_rot += drot
+
+		if 't' in k: kine.d += dlength
+		if 'g' in k: kine.d -= dlength
+		if 'h' in k: kine.h += dlength
+		if 'y' in k: kine.h -= dlength
+
+
+		T = np.array([x,y,z])
+		r = R.from_euler('xyz', [x_rot,y_rot,z_rot], degrees=True)
+		if 'z' in k:
+			T = np.array([0,0,0])
+			r = R.from_euler('xyz', [0,0,0], degrees=True)
+			x = 0
+			y = 0
+			z = 0
+			x_rot = 0
+			y_rot = 0
+			z_rot = 0
+		success = kine.solveIK(T,r)
+		if(not success):
+			x = x_prev
+			y = y_prev
+			z = z_prev
+			x_rot = x_rot_prev
+			y_rot = y_rot_prev
+			z_rot = z_rot_prev
+		else:
+			x_prev = x
+			y_prev = y
+			z_prev = z
+			x_rot_prev = x_rot
+			y_rot_prev = y_rot
+			z_rot_prev = z_rot
+
 		sim.updatePlatform()
 
-	# kine.solveIK(T,r)
-	# scene.waitfor('keydown')
-	# print('Keydown')
-	# sim.updatePlatform()
-
-
-	# print(sim.ek)
-	#Do something
+		if('p' in k):
+			print("Pose")
+			print("T")
+			print(T)
+			print("R")
+			print(r.as_euler('xyz'))
+			print("Servo Angles")
+			print(kine.alpha_k)
