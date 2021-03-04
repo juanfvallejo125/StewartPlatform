@@ -4,7 +4,7 @@ from scipy.spatial.transform import Rotation as R
 from math import *
 
 class Simulation:
-	def __init__(self, model): 
+	def __init__(self, model, thickness=5): 
 		self.r = model.r
 		self.s = model.s
 		self.origin = vec(0,0,0)
@@ -13,6 +13,7 @@ class Simulation:
 		self.kine = model
 		scene.width=1920*0.8
 		scene.height=1080*0.8
+		self.thickness = thickness
 		self.generateVertices()
 		self.drawPlate()
 		self.drawServoAxisPoints()
@@ -28,12 +29,34 @@ class Simulation:
 		self.ek = self.kine.Pk_solved
 		for i,e in enumerate(self.ek):
 			self.vertices.append(vertex(pos=vec(self.ek[i,0], self.ek[i,1], self.ek[i,2])))
+
+		normal = (self.vertices[0].pos - self.vertices[1].pos).cross(self.vertices[-1].pos - self.vertices[0].pos).norm()
+		self.vertices_plate_2 = []
+		self.triangles_plate_2 = []
+		self.sides = []
+		for i in range(len(self.vertices)):
+			new_vertex = vertex(pos=self.vertices[i].pos+normal*self.thickness)
+			self.vertices_plate_2.append(new_vertex)
+
 		
 	def drawPlate(self):
 		# Plot the platform with triangles
 		for i in range(len(self.vertices)-2):
 			self.triangles.append(triangle(vs = [self.vertices[0], self.vertices[i+1], self.vertices[i+2]]))
 		self.triangles.append(triangle(vs = [self.vertices[0], self.vertices[-1], self.vertices[1]]))
+
+		for i in range(len(self.vertices_plate_2)-2):
+			self.triangles_plate_2.append(triangle(vs = [self.vertices_plate_2[0], self.vertices_plate_2[i+1], self.vertices_plate_2[i+2]]))
+		self.triangles_plate_2.append(triangle(vs = [self.vertices_plate_2[0], self.vertices_plate_2[-1], self.vertices_plate_2[1]]))
+
+		max_idx = len(self.vertices_plate_2)
+		for i in range(len(self.vertices_plate_2)-1):
+			curr_idx = (i+1)%max_idx
+			next_idx = (i+2)%max_idx
+			if(curr_idx == 0): curr_idx = 1
+			if(next_idx == 0): next_idx = 1
+			self.sides.append(quad(vs=[self.vertices[curr_idx], self.vertices[next_idx], self.vertices_plate_2[next_idx], self.vertices_plate_2[curr_idx]]))
+			print([curr_idx, next_idx, next_idx, curr_idx])
 		# self.extrusionPath = [self.vertices[0].pos,self.triangles[0].v0.normal.norm()*self.thickness]
 		# self.plate = extrusion(path=self.extrusionPath, shape=self.triangles[0], color=color.black)
 
@@ -42,6 +65,10 @@ class Simulation:
 		self.vertices[0].pos = vec(self.kine.T[0],self.kine.T[1],self.kine.T[2])
 		for i in range(len(self.ek)):
 			self.vertices[i+1].pos = vec(self.ek[i,0], self.ek[i,1], self.ek[i,2])
+
+		normal = (self.vertices[0].pos - self.vertices[1].pos).cross(self.vertices[-1].pos - self.vertices[0].pos).norm()
+		for i in range(len(self.vertices_plate_2)):
+			self.vertices_plate_2[i].pos = self.vertices[i].pos+normal*self.thickness
 
 	def drawServoAxisPoints(self):
 		color_list = [color.black, color.blue, color.cyan, color.orange, color.green, color.magenta]
@@ -68,18 +95,18 @@ class Simulation:
 		self.horns = []
 		for i in range(len(self.kine.bk)):
 			self.horns.append(curve(vec(self.kine.bk[i,0], self.kine.bk[i,1], self.kine.bk[i,2]), 
-								   vec(self.hk[i,0], self.hk[i,1], self.hk[i,2])))
+								   vec(self.hk[i,0], self.hk[i,1], self.hk[i,2]), radius=1))
 
 	def updateHorns(self):
 		for i in range(len(self.kine.bk)):
 			self.horns[i].modify(0,vec(self.kine.bk[i,0], self.kine.bk[i,1], self.kine.bk[i,2]))
 			self.horns[i].modify(1,vec(self.hk[i,0], self.hk[i,1], self.hk[i,2]))
 
-	def drawRods(self):# Once I pass everything in as the kinematics object. Indexes should match in HK and ek
+	def drawRods(self):
 		self.rods = []
 		for i in range(len(self.hk)):
 			self.rods.append(curve(vec(self.hk[i,0], self.hk[i,1], self.hk[i,2]), 
-								   vec(self.ek[i,0], self.ek[i,1], self.ek[i,2])))
+								   vec(self.ek[i,0], self.ek[i,1], self.ek[i,2]), radius=1))
 
 	def updateRods(self):# Same as note above
 		for i in range(len(self.hk)):
@@ -96,11 +123,11 @@ class Simulation:
 
 class Kinematics:
 	def __init__(self, 		   #Parameters needed for kinematics
-				r: np.float64, #Radius of inscribed circle in inner triangle
-				s: np.float64, #Radius of inscribed circle in outer triangle
-				d: np.float64, #Rod length
-				h: np.float64, #Servo Horn Length 
-				):
+				 r: np.float64, #Radius of inscribed circle in inner triangle
+				 s: np.float64, #Radius of inscribed circle in outer triangle
+				 d: np.float64, #Rod length
+				 h: np.float64, #Servo Horn Length 
+				 ):
 		self.r = r
 		self.s = s
 		self.origin = vec(0,0,0)
